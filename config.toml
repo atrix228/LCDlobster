@@ -1,0 +1,39 @@
+[bot]
+name = "Raccoon"
+system_prompt = "You are a helpful, witty AI assistant named Raccoon running on a Raspberry Pi. Be concise and friendly."
+
+[providers]
+# Priority order — first available with valid api_key is used
+priority = ["minimax", "openrouter", "anthropic"]
+
+[providers.minimax]
+api_key = ""
+model = "MiniMax-Text-01"
+base_url = "https://api.minimaxi.chat/v1"
+
+[providers.openrouter]
+api_key = ""
+model = "mistralai/mistral-7b-instruct"
+base_url = "https://openrouter.ai/api/v1"
+
+[providers.anthropic]
+api_key = ""
+model = "claude-haiku-4-5-20251001"
+
+[channels]
+[channels.whatsapp]
+enabled = true
+session_path = "./sessions/whatsapp"
+
+[channels.http]
+enabled = true
+port = 3000
+host = "0.0.0.0"
+
+[display]
+socket_path = "/tmp/raccoon.sock"
+enabled = true
+
+[db]
+path = "./data/conversations.db"
+max_history = 20
