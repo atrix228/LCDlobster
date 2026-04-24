@@ -30,38 +30,44 @@ PROVIDER_LABEL  = "ZeroClaw / DeepSeek"
 
 # ---------------------------------------------------------------------------
 # Log pattern → raccoon state
+# Based on actual ZeroClaw daemon.log format observed in production:
+#   💬 [telegram] from 257722614: <text>
+#   ⏳ Processing message...
+#   orchestrator: ⏱ Memory recall completed
+#   orchestrator: ⏱ Starting LLM call
+#   orchestrator: ⏱ LLM call completed
+#   🤖 Reply (7125ms): <text>
+#   orchestrator: ⏱ Tool call: <tool_name>
+#
 # Each entry: (compiled_regex, state_name, revert_after_secs or None)
 # Patterns are checked in order; first match wins.
 # ---------------------------------------------------------------------------
 _P = re.compile
 PATTERNS = [
-    # ------ error ------
-    (_P(r"ERROR|panicked|panic!|FATAL"),           "error",      None),
+    # ------ panic / crash ------
+    (_P(r"panicked|panic!|FATAL"),                 "error",      None),
 
     # ------ incoming Telegram message ------
-    (_P(r"zeroclaw_channels::telegram.*(receiv|update|inbound|dispatch|new message)",
-        re.I),                                      "listening",  None),
-    (_P(r"zeroclaw_channels::orchestrator.*(dispatch|queue|enqueue)",
-        re.I),                                      "listening",  None),
+    (_P(r"💬"),                                     "listening",  None),
 
-    # ------ LLM thinking ------
-    (_P(r"zeroclaw_runtime::agent"),                "thinking",   None),
-    (_P(r"zeroclaw_providers"),                     "thinking",   None),
-    (_P(r"zeroclaw_runtime::context|zeroclaw_runtime::memory.*load",
-        re.I),                                      "thinking",   None),
+    # ------ processing / memory load ------
+    (_P(r"⏳ Processing|Memory recall"),            "thinking",   None),
+
+    # ------ LLM call in progress ------
+    (_P(r"Starting LLM call"),                      "thinking",   None),
 
     # ------ tool execution ------
-    (_P(r"tool_execution|executing.*tool|tool.*dispatch|tool_call",
-        re.I),                                      "working",    None),
-    (_P(r"zeroclaw_runtime::tools"),                "working",    None),
-    (_P(r"shell_tool|file_read|file_write|web_search|web_fetch",
-        re.I),                                      "working",    None),
+    (_P(r"Tool call:|tool_call|⚙|executing.*tool", re.I),
+                                                    "working",    None),
 
-    # ------ response sent back ------
-    (_P(r"zeroclaw_channels::telegram.*(send|sent|reply|respond)",
-        re.I),                                      "responding", 4),
-    (_P(r"zeroclaw_channels::orchestrator.*(send|sent|reply|respond|done|complete)",
-        re.I),                                      "responding", 4),
+    # ------ LLM finished, about to send reply ------
+    (_P(r"LLM call completed"),                     "responding", None),
+
+    # ------ reply sent ------
+    (_P(r"🤖 Reply"),                               "idle",       None),
+
+    # ------ errors shown in reply or log ------
+    (_P(r"\bERROR\b"),                              "error",      8),
 ]
 
 
@@ -123,7 +129,9 @@ def _classify(line: str):
 def tail_log(stop_event: threading.Event):
     """Follow LOG_FILE with tail -F; classify each line."""
     print(f"[bridge] Tailing {LOG_FILE}", flush=True)
-    last_activity = time.monotonic()
+
+    # Use a list so the closure and the for-loop share the same reference
+    last_activity = [time.monotonic()]
 
     # Wait for log file to appear (daemon may not have started yet)
     while not stop_event.is_set() and not os.path.exists(LOG_FILE):
@@ -137,20 +145,16 @@ def tail_log(stop_event: threading.Event):
         bufsize=1,
     )
 
-    idle_check = threading.Event()
-
     def _idle_watcher():
         while not stop_event.is_set():
             time.sleep(5)
             with _state_lock:
                 cur = _current_state
             if cur not in ("idle", "sleeping", "network"):
-                elapsed = time.monotonic() - last_activity
-                if elapsed > IDLE_TIMEOUT:
+                if time.monotonic() - last_activity[0] > IDLE_TIMEOUT:
                     set_state("idle")
 
-    watcher = threading.Thread(target=_idle_watcher, daemon=True)
-    watcher.start()
+    threading.Thread(target=_idle_watcher, daemon=True).start()
 
     try:
         for raw_line in proc.stdout:
@@ -159,11 +163,14 @@ def tail_log(stop_event: threading.Event):
             line = raw_line.strip()
             if not line:
                 continue
+            # Strip ANSI escape codes (ZeroClaw uses coloured output)
+            line = re.sub(r'\x1b\[[0-9;]*m', '', line)
 
             state, revert = _classify(line)
             if state:
-                last_activity = time.monotonic()
+                last_activity[0] = time.monotonic()
                 set_state(state, revert_after=revert)
+                print(f"[bridge] matched: {line[:80]!r}", flush=True)
     finally:
         proc.terminate()
         proc.wait()
@@ -195,8 +202,8 @@ def main():
     print(f"[bridge] Log file: {LOG_FILE}", flush=True)
     print(f"[bridge] Socket:   {RACCOON_SOCK}", flush=True)
 
-    # Announce provider on the display
-    _send({"provider": PROVIDER_LABEL})
+    # Sync display to known-good state on startup
+    _send({"state": "idle", "provider": PROVIDER_LABEL})
 
     stop = threading.Event()
 
