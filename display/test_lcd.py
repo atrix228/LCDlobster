@@ -110,6 +110,14 @@ def run_test():
     print("Start the full service with:")
     print("  sudo systemctl start raccoon-display\n")
 
+    # Explicitly release GPIO so the next process can claim it immediately
+    try:
+        display.set_backlight(0)
+        del display
+        import gc; gc.collect()
+    except Exception:
+        pass
+
 
 if __name__ == "__main__":
     run_test()

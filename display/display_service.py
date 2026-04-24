@@ -34,19 +34,33 @@ FRAME_SLEEP = 1.0 / FPS
 # Display backend — real hardware or debug fallback
 # ---------------------------------------------------------------------------
 def _init_display():
-    """Return (display_obj, use_hardware) — falls back gracefully."""
+    """Return (display_obj, use_hardware) — retries on EBUSY, falls back gracefully."""
     try:
         from displayhatmini import DisplayHATMini   # type: ignore
-        disp = DisplayHATMini(None)
-        disp.set_backlight(1.0)
-        print("[display] Hardware display initialised.", flush=True)
-        return disp, True
     except ImportError as exc:
         print(f"[display] displayhatmini not installed: {exc}", flush=True)
         print("[display] Run: pip3 install rpi-lgpio displayhatmini", flush=True)
-    except Exception as exc:
-        print(f"[display] Hardware init failed: {type(exc).__name__}: {exc}", flush=True)
-        import traceback; traceback.print_exc()
+        return None, False
+
+    for attempt in range(5):
+        try:
+            disp = DisplayHATMini(None)
+            disp.set_backlight(1.0)
+            print("[display] Hardware display initialised.", flush=True)
+            return disp, True
+        except OSError as exc:
+            if exc.errno == 16 and attempt < 4:  # EBUSY — previous process still holds GPIO
+                print(f"[display] GPIO busy, retrying in 2s (attempt {attempt + 1}/5)…", flush=True)
+                time.sleep(2)
+            else:
+                print(f"[display] Hardware init failed: {type(exc).__name__}: {exc}", flush=True)
+                import traceback; traceback.print_exc()
+                break
+        except Exception as exc:
+            print(f"[display] Hardware init failed: {type(exc).__name__}: {exc}", flush=True)
+            import traceback; traceback.print_exc()
+            break
+
     return None, False
 
 

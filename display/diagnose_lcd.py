@@ -156,13 +156,21 @@ else:
 
         import time; time.sleep(2)
 
-        # Black out
+        # Black out and release GPIO so the next process can claim it immediately
         disp.st7789.display(Image.new("RGB", (W, H), (0, 0, 0)))
         disp.set_backlight(0)
+        del disp
+        import gc; gc.collect()
 
     except Exception as exc:
         import traceback
         check("Hardware init", False, traceback.format_exc().strip())
+    finally:
+        try:
+            del disp
+            import gc; gc.collect()
+        except Exception:
+            pass
 
 # ── 6. Summary ────────────────────────────────────────────────────────────────
 section("6 / Summary & quick-fix commands")
