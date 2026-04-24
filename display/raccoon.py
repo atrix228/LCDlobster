@@ -60,12 +60,17 @@ class RaccoonRenderer:
     # ------------------------------------------------------------------
     def draw_frame(self, state: str, frame: int, connectivity: str,
                    provider: str = "", qr_data: str = "",
-                   ip: str = "", ssid: str = "", hostname: str = "") -> Image.Image:
+                   ip: str = "", ssid: str = "", hostname: str = "",
+                   stats: dict = None) -> Image.Image:
         """Return a 320x240 RGB image for *state* at animation *frame*."""
         img  = Image.new("RGB", (self.W, self.H), BG)
         draw = ImageDraw.Draw(img)
 
         state = state.lower() if state else "idle"
+
+        if state == "sysinfo":
+            self._draw_sysinfo_screen(draw, stats or {}, connectivity)
+            return img
 
         if state == "qr":
             self._draw_qr_screen(draw, img, qr_data, connectivity)
@@ -97,6 +102,18 @@ class RaccoonRenderer:
             self._draw_building(draw, cx, cy, frame)
         elif state == "error":
             self._draw_error(draw, cx, cy, frame)
+        elif state == "celebrating":
+            self._draw_celebrating(draw, cx, cy, frame)
+        elif state == "confused":
+            self._draw_confused(draw, cx, cy, frame)
+        elif state == "searching":
+            self._draw_searching(draw, cx, cy, frame)
+        elif state == "reading":
+            self._draw_reading(draw, cx, cy, frame)
+        elif state == "excited":
+            self._draw_excited(draw, cx, cy, frame)
+        elif state == "sneaky":
+            self._draw_sneaky(draw, cx, cy, frame)
         else:
             self._draw_idle(draw, cx, cy, frame)
 
@@ -309,6 +326,207 @@ class RaccoonRenderer:
         # Large Z — only in 3rd phase
         if phase >= 36:
             self._draw_z(draw, bx + 22, by - 36 - rise // 3, size=14, color=LIGHT_BLUE)
+
+    def _draw_celebrating(self, draw, cx, cy, frame):
+        bounce = -6 if (frame % 4) < 2 else 0
+        wag = 8 if (frame % 2 == 0) else -8
+        self._draw_tail(draw, cx, cy, wag_offset=wag)
+        self._draw_raccoon_base(draw, cx, cy + bounce)
+        self._draw_party_hat(draw, cx, cy + bounce)
+        # Stars at fixed positions, alternate visibility per frame
+        for i, (sx, sy) in enumerate([(cx-62,cy-44),(cx+62,cy-52),(cx-52,cy+18),(cx+68,cy+8)]):
+            if (frame + i) % 2 == 0:
+                self._draw_sparkle(draw, sx, sy, 6, YELLOW)
+
+    def _draw_confused(self, draw, cx, cy, frame):
+        # Head tilts left and right in a slow cycle
+        lean_seq = [4, 7, 4, 0, -4, -7, -4, 0]
+        lean = lean_seq[frame % len(lean_seq)]
+        self._draw_tail(draw, cx, cy, wag_offset=0)
+        self._draw_raccoon_base(draw, cx + lean, cy)
+        self._draw_raised_paw(draw, cx + lean, cy)
+        # Cycling ? marks
+        q_count = (frame // 8) % 3 + 1
+        for i in range(q_count):
+            draw.text((cx + 36 + i * 14, cy - 58 - i * 6), "?",
+                      fill=YELLOW, font=self._font_md)
+
+    def _draw_searching(self, draw, cx, cy, frame):
+        # Scan side to side
+        scan_seq = [-10, -6, 0, 6, 10, 6, 0, -6]
+        scan = scan_seq[frame % len(scan_seq)]
+        self._draw_tail(draw, cx, cy, wag_offset=2)
+        self._draw_raccoon_base(draw, cx + scan // 3, cy, looking_down=True)
+        self._draw_magnifier(draw, cx + 56 + scan, cy - 18)
+
+    def _draw_reading(self, draw, cx, cy, frame):
+        breathe = 1 if (frame % 12) < 6 else 0
+        self._draw_tail(draw, cx, cy, wag_offset=0)
+        self._draw_raccoon_base(draw, cx, cy + breathe, looking_down=True)
+        # Glasses overlay (calculated from same geometry as _draw_raccoon_base)
+        s = 1.0
+        hy     = (cy + breathe) - int(52 * s)
+        mask_y = hy + int(16 * s)
+        eye_y  = mask_y + int(2 * s)
+        lex    = cx - int(26 * s)
+        rex    = cx + int(26 * s)
+        ew     = int(14 * s)
+        for ex_c in [lex, rex]:
+            draw.ellipse([ex_c - ew//2 - 1, eye_y - 1,
+                          ex_c + ew//2 + 1, eye_y + int(10*s) + 2],
+                         outline=BLACK, width=2)
+        draw.line([lex + ew//2 + 1, eye_y + 4,
+                   rex - ew//2 - 1, eye_y + 4], fill=BLACK, width=1)
+        # Laptop/screen glow below raccoon
+        draw.rectangle([cx - 36, cy + breathe + 46,
+                         cx + 36, cy + breathe + 68],
+                        fill=(20, 25, 55), outline=(50, 70, 140))
+        for row, ly in enumerate([cy + breathe + 52, cy + breathe + 59, cy + breathe + 65]):
+            lw = 50 if row < 2 else 30
+            draw.line([cx - lw//2, ly, cx + lw//2, ly], fill=(70, 110, 200), width=1)
+
+    def _draw_excited(self, draw, cx, cy, frame):
+        bounce_seq = [-10, -14, -12, -6, 0, -4]
+        bounce = bounce_seq[frame % len(bounce_seq)]
+        wag = 10 if (frame % 2 == 0) else -10
+        self._draw_tail(draw, cx, cy, wag_offset=wag)
+        self._draw_raccoon_base(draw, cx, cy + bounce)
+        # Star burst radiating outward
+        for i, angle in enumerate(range(0, 360, 45)):
+            rad  = math.radians(angle + frame * 20)
+            dist = 52 + 8 * math.sin(frame * 0.8 + i)
+            sx   = int(cx + dist * math.cos(rad))
+            sy   = int((cy + bounce) + dist * 0.65 * math.sin(rad))
+            self._draw_sparkle(draw, sx, sy, 5, YELLOW)
+
+    def _draw_sneaky(self, draw, cx, cy, frame):
+        # Crouched — shift down 10 px
+        self._draw_tail(draw, cx, cy + 10, wag_offset=0)
+        self._draw_raccoon_base(draw, cx, cy + 10)
+        # Sunglasses overlay
+        s = 1.0
+        hy     = (cy + 10) - int(52 * s)
+        mask_y = hy + int(16 * s)
+        eye_y  = mask_y + int(2 * s)
+        lex    = cx - int(26 * s)
+        rex    = cx + int(26 * s)
+        ew     = int(14 * s)
+        for ex_c in [lex, rex]:
+            draw.ellipse([ex_c - ew//2 - 1, eye_y - 1,
+                          ex_c + ew//2 + 1, eye_y + int(10*s) + 1],
+                         fill=(15, 15, 15), outline=BLACK, width=2)
+        draw.line([lex + ew//2 + 1, eye_y + 4,
+                   rex - ew//2 - 1, eye_y + 4], fill=BLACK, width=2)
+        # Fast typing paws
+        self._draw_typing_paws(draw, cx, cy + 10, left_up=(frame % 2 == 0))
+
+    # ------------------------------------------------------------------
+    # New animation helpers
+    # ------------------------------------------------------------------
+    def _draw_sparkle(self, draw, x, y, size, color):
+        s2 = max(size // 2, 1)
+        draw.line([x - size, y, x + size, y], fill=color, width=2)
+        draw.line([x, y - size, x, y + size], fill=color, width=2)
+        draw.line([x - s2, y - s2, x + s2, y + s2], fill=color, width=1)
+        draw.line([x + s2, y - s2, x - s2, y + s2], fill=color, width=1)
+
+    def _draw_party_hat(self, draw, cx, cy):
+        """Cone hat on top of raccoon's head."""
+        s = 1.0
+        hy      = cy - int(52 * s)
+        base_y  = hy + 6
+        tip_y   = hy - 28
+        hw      = 14
+        draw.polygon([(cx - hw, base_y), (cx + hw, base_y), (cx, tip_y)],
+                     fill=(220, 50, 50))
+        # Stripe
+        draw.polygon([(cx - hw//2, base_y - 10), (cx + hw//2, base_y - 10),
+                      (cx + hw//4, base_y - 20), (cx - hw//4, base_y - 20)],
+                     fill=YELLOW)
+        # Pompom
+        draw.ellipse([cx - 5, tip_y - 5, cx + 5, tip_y + 5],
+                     fill=WHITE, outline=LIGHT_GRAY)
+
+    def _draw_magnifier(self, draw, x, y):
+        """Simple magnifying glass."""
+        r = 11
+        draw.ellipse([x - r, y - r, x + r, y + r],
+                     outline=LIGHT_GRAY, width=3)
+        draw.ellipse([x - r + 2, y - r + 2, x + r - 2, y + r - 2],
+                     outline=(180, 220, 255), width=1)
+        draw.line([x + r - 2, y + r - 2, x + r + 10, y + r + 10],
+                  fill=LIGHT_GRAY, width=4)
+
+    # ------------------------------------------------------------------
+    # Sysinfo screen
+    # ------------------------------------------------------------------
+    def _draw_bar(self, draw, x, y, w, h, pct):
+        clr = RED if pct >= 85 else (YELLOW if pct >= 60 else GREEN)
+        draw.rectangle([(x, y), (x + w, y + h)], outline=DARK_GRAY, width=1)
+        filled = max(0, int(w * pct / 100) - 2)
+        if filled > 0:
+            draw.rectangle([(x + 1, y + 1), (x + 1 + filled, y + h - 1)], fill=clr)
+
+    def _draw_sysinfo_screen(self, draw, stats: dict, connectivity: str):
+        # Header
+        draw.rectangle([(0, 0), (self.W, 30)], fill=(15, 25, 50))
+        self._text_centred(draw, 15, "SYSTEM INFO", self._font_md, (100, 180, 255))
+        dot_col = GREEN if connectivity == "connected" else (80, 80, 80)
+        draw.ellipse([(self.W - 18, 9), (self.W - 6, 21)], fill=dot_col)
+
+        y = 36
+
+        # CPU
+        cpu = stats.get('cpu', 0)
+        draw.text((8, y), "CPU", fill=DARK_GRAY, font=self._font_sm)
+        self._draw_bar(draw, 50, y, 190, 12, cpu)
+        draw.text((248, y), f"{cpu:3d}%", fill=WHITE, font=self._font_sm)
+        y += 20
+
+        # Memory
+        mem_pct  = stats.get('mem_pct', 0)
+        mem_used = stats.get('mem_used', 0)
+        mem_tot  = stats.get('mem_total', 0)
+        draw.text((8, y), "MEM", fill=DARK_GRAY, font=self._font_sm)
+        self._draw_bar(draw, 50, y, 190, 12, mem_pct)
+        draw.text((248, y), f"{mem_pct:3d}%", fill=WHITE, font=self._font_sm)
+        y += 16
+        draw.text((50, y), f"{mem_used} MB / {mem_tot} MB",
+                  fill=DARK_GRAY, font=self._font_sm)
+        y += 18
+
+        # Temp
+        temp     = stats.get('temp', 0)
+        temp_col = RED if temp >= 75 else (YELLOW if temp >= 60 else GREEN)
+        draw.text((8, y), "TEMP", fill=DARK_GRAY, font=self._font_sm)
+        draw.text((58, y), f"{temp}°C", fill=temp_col, font=self._font_md)
+        y += 20
+
+        # Uptime
+        draw.text((8, y), "UP", fill=DARK_GRAY, font=self._font_sm)
+        draw.text((50, y), stats.get('uptime', '—'), fill=WHITE, font=self._font_sm)
+        y += 20
+
+        # Divider
+        draw.line([(8, y), (self.W - 8, y)], fill=(40, 70, 120), width=1)
+        y += 8
+
+        # WiFi
+        ssid = stats.get('ssid', '')
+        draw.text((8, y), "WiFi", fill=DARK_GRAY, font=self._font_sm)
+        draw.text((54, y), ssid[:24] if ssid else "—",
+                  fill=(80, 220, 80) if ssid else DARK_GRAY, font=self._font_sm)
+        y += 18
+
+        # IP
+        ip = stats.get('ip', '')
+        draw.text((8, y), "IP", fill=DARK_GRAY, font=self._font_sm)
+        draw.text((54, y), ip if ip else "no network",
+                  fill=WHITE if ip else RED, font=self._font_sm)
+
+        # Footer
+        draw.rectangle([(0, self.H - 22), (self.W, self.H)], fill=(15, 25, 50))
+        self._text_centred(draw, self.H - 11, "press A to return", self._font_sm, DARK_GRAY)
 
     # ------------------------------------------------------------------
     # Core raccoon drawing

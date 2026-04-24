@@ -15,6 +15,7 @@ import os
 import sys
 import json
 import socket
+import subprocess
 import threading
 import time
 
@@ -30,6 +31,12 @@ FPS                = 6
 FRAME_SLEEP        = 1.0 / FPS
 IDLE_SLEEP_TIMEOUT = 300   # seconds of idle before raccoon falls asleep
 STRETCH_FRAMES     = 18    # frames to show "stretching" on wakeup (~3 s)
+
+# Display HAT Mini button GPIO pins (BCM numbering, active-low)
+BUTTON_A = 5
+BUTTON_B = 6
+BUTTON_X = 16
+BUTTON_Y = 24
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +82,104 @@ def _push_frame(disp, use_hardware: bool, img: Image.Image):
 
 
 # ---------------------------------------------------------------------------
+# System stats collector — updates every 2 s in a background thread
+# ---------------------------------------------------------------------------
+class SysInfoCollector:
+    def __init__(self):
+        self._lock     = threading.Lock()
+        self._stats    = {}
+        self._prev_cpu = None
+
+    def get(self) -> dict:
+        with self._lock:
+            return dict(self._stats)
+
+    def _collect(self):
+        s = {}
+
+        # CPU %
+        try:
+            with open('/proc/stat') as f:
+                parts = f.readline().split()
+            idle  = int(parts[4])
+            total = sum(int(x) for x in parts[1:8])
+            if self._prev_cpu:
+                pi, pt = self._prev_cpu
+                d_idle  = idle  - pi
+                d_total = total - pt
+                s['cpu'] = max(0, min(100, int(100 * (1 - d_idle / max(d_total, 1)))))
+            else:
+                s['cpu'] = 0
+            self._prev_cpu = (idle, total)
+        except Exception:
+            s['cpu'] = 0
+
+        # Memory
+        try:
+            mem = {}
+            with open('/proc/meminfo') as f:
+                for line in f:
+                    k, v = line.split(':', 1)
+                    mem[k.strip()] = int(v.split()[0])
+            total_mb = mem['MemTotal']     // 1024
+            avail_mb = mem['MemAvailable'] // 1024
+            used_mb  = total_mb - avail_mb
+            s['mem_pct']   = max(0, min(100, int(100 * used_mb / max(total_mb, 1))))
+            s['mem_used']  = used_mb
+            s['mem_total'] = total_mb
+        except Exception:
+            s['mem_pct'] = s['mem_used'] = s['mem_total'] = 0
+
+        # Temperature
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp') as f:
+                s['temp'] = int(f.read().strip()) // 1000
+        except Exception:
+            s['temp'] = 0
+
+        # Uptime
+        try:
+            with open('/proc/uptime') as f:
+                up = int(float(f.read().split()[0]))
+            days = up // 86400
+            hrs  = (up % 86400) // 3600
+            mins = (up % 3600)  // 60
+            s['uptime'] = (f"{days}d {hrs}h {mins}m" if days else
+                           f"{hrs}h {mins}m"          if hrs  else
+                           f"{mins}m")
+        except Exception:
+            s['uptime'] = '?'
+
+        # IP address
+        try:
+            _s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            _s.connect(('8.8.8.8', 80))
+            s['ip'] = _s.getsockname()[0]
+            _s.close()
+        except Exception:
+            s['ip'] = ''
+
+        # WiFi SSID
+        try:
+            r = subprocess.run(['iwgetid', '-r'],
+                               capture_output=True, text=True, timeout=2)
+            s['ssid'] = r.stdout.strip()
+        except Exception:
+            s['ssid'] = ''
+
+        with self._lock:
+            self._stats = s
+
+    def run(self):
+        while True:
+            try:
+                self._collect()
+            except Exception:
+                pass
+            time.sleep(2)
+
+
+# ---------------------------------------------------------------------------
 # Shared mutable state — protected by a lock
 # ---------------------------------------------------------------------------
 class DisplayState:
@@ -89,8 +194,9 @@ class DisplayState:
         self.hostname       = ""
         self._frame         = 0
         self._last_activity = time.monotonic()
-        self._was_sleeping  = False   # tracks wakeup stretch transition
+        self._was_sleeping  = False
         self._stretch_count = 0
+        self._sysinfo_mode  = False
 
     def update(self, **kwargs):
         with self._lock:
@@ -116,12 +222,24 @@ class DisplayState:
             if "hostname"     in kwargs:
                 self.hostname     = kwargs["hostname"]
 
+    def toggle_sysinfo(self):
+        with self._lock:
+            self._sysinfo_mode = not self._sysinfo_mode
+            print(f"[display] Sysinfo mode: {self._sysinfo_mode}", flush=True)
+
     def idle_seconds(self) -> float:
         with self._lock:
             return time.monotonic() - self._last_activity
 
     def tick_frame(self) -> tuple:
         with self._lock:
+            # Button-toggled sysinfo page overrides everything
+            if self._sysinfo_mode:
+                snap = ("sysinfo", self._frame, self.connectivity,
+                        self.provider, self.qr_data, self.ip, self.ssid, self.hostname)
+                self._frame = (self._frame + 1) % 120
+                return snap
+
             state = self.state
 
             # Auto-sleep when idle long enough
@@ -139,7 +257,7 @@ class DisplayState:
 
             snap = (state, self._frame, self.connectivity,
                     self.provider, self.qr_data, self.ip, self.ssid, self.hostname)
-            self._frame = (self._frame + 1) % 120   # 120-frame cycle = 20 s at 6 FPS
+            self._frame = (self._frame + 1) % 120
         return snap
 
 
@@ -147,7 +265,8 @@ class DisplayState:
 # Render / display loop thread
 # ---------------------------------------------------------------------------
 def display_loop(shared: DisplayState, disp, use_hardware: bool,
-                 renderer: RaccoonRenderer, stop_event: threading.Event):
+                 renderer: RaccoonRenderer, stop_event: threading.Event,
+                 sysinfo: SysInfoCollector):
     print("[display] Display loop started.", flush=True)
     while not stop_event.is_set():
         t0 = time.monotonic()
@@ -155,8 +274,9 @@ def display_loop(shared: DisplayState, disp, use_hardware: bool,
         state, frame, connectivity, provider, qr_data, ip, ssid, hostname = shared.tick_frame()
 
         try:
+            stats = sysinfo.get() if state == "sysinfo" else None
             img = renderer.draw_frame(state, frame, connectivity, provider,
-                                      qr_data, ip, ssid, hostname)
+                                      qr_data, ip, ssid, hostname, stats)
             _push_frame(disp, use_hardware, img)
         except Exception as exc:
             print(f"[display] Render error: {exc}", flush=True)
@@ -259,11 +379,37 @@ def socket_server(shared: DisplayState, stop_event: threading.Event):
 
 
 # ---------------------------------------------------------------------------
+# Button polling thread — GPIO A toggles sysinfo, others reserved
+# ---------------------------------------------------------------------------
+def button_thread(shared: DisplayState, stop_event: threading.Event):
+    try:
+        import RPi.GPIO as GPIO
+        GPIO.setmode(GPIO.BCM)
+        for pin in (BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y):
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        print("[buttons] GPIO button polling started.", flush=True)
+
+        prev = {BUTTON_A: 1, BUTTON_B: 1, BUTTON_X: 1, BUTTON_Y: 1}
+        while not stop_event.is_set():
+            for pin in (BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y):
+                cur = GPIO.input(pin)
+                if prev[pin] and not cur:      # falling edge = press
+                    if pin == BUTTON_A:
+                        shared.toggle_sysinfo()
+                    # B / X / Y reserved for future use
+                prev[pin] = cur
+            time.sleep(0.05)
+    except Exception as exc:
+        print(f"[buttons] GPIO unavailable: {exc}", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 def main():
     renderer     = RaccoonRenderer()
     shared       = DisplayState()
+    sysinfo      = SysInfoCollector()
     disp, use_hw = _init_display()
     stop_event   = threading.Event()
 
@@ -275,14 +421,14 @@ def main():
     except Exception as exc:
         print(f"[display] Initial frame error: {exc}", flush=True)
 
-    # Start the animation loop in a background daemon thread
-    loop_thread = threading.Thread(
-        target=display_loop,
-        args=(shared, disp, use_hw, renderer, stop_event),
-        daemon=True,
-        name="display-loop",
-    )
-    loop_thread.start()
+    # Background threads
+    for name, target, args in [
+        ("display-loop",  display_loop,   (shared, disp, use_hw, renderer, stop_event, sysinfo)),
+        ("sysinfo",       sysinfo.run,    ()),
+        ("buttons",       button_thread,  (shared, stop_event)),
+    ]:
+        t = threading.Thread(target=target, args=args, daemon=True, name=name)
+        t.start()
 
     # Run the socket server in the main thread
     try:
@@ -291,7 +437,6 @@ def main():
         print("\n[main] Interrupted — shutting down.", flush=True)
     finally:
         stop_event.set()
-        loop_thread.join(timeout=2.0)
         print("[main] Goodbye.", flush=True)
 
 
