@@ -26,6 +26,7 @@ export async function processMessage(
     const response = await router.chat(history, config.bot.system_prompt);
 
     sendState({ state: "responding" });
+    sendState({ provider: `${response.provider} / ${response.model}` });
 
     // Persist the assistant response
     addMessage(channel, chatId, "assistant", response.content);
