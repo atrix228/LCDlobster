@@ -220,8 +220,8 @@ dtoverlay=spi1-3cs
 dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
 dtoverlay=vc4-fkms-v3d
 dtoverlay=dwc2
-# Disable HDMI to save power (headless)
-hdmi_blanking=2
+# Keep HDMI active for debugging (Pi OS Lite shows a console on HDMI by default)
+hdmi_force_hotplug=1
 # lcdlobster-marker
 BOOTCFG
 
