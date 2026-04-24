@@ -46,11 +46,11 @@ apt-get install -y --no-install-recommends \
     python3-pip \
     python3-pil \
     python3-spidev \
-    python3-rpi.gpio \
     i2c-tools \
     libopenjp2-7 \
     libtiff6 \
     wireless-tools \
+    netcat-openbsd \
     nodejs \
     npm \
     git \
