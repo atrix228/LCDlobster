@@ -25,9 +25,11 @@ from raccoon import RaccoonRenderer
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SOCKET_PATH = "/tmp/raccoon.sock"
-FPS         = 6
-FRAME_SLEEP = 1.0 / FPS
+SOCKET_PATH        = "/tmp/raccoon.sock"
+FPS                = 6
+FRAME_SLEEP        = 1.0 / FPS
+IDLE_SLEEP_TIMEOUT = 300   # seconds of idle before raccoon falls asleep
+STRETCH_FRAMES     = 18    # frames to show "stretching" on wakeup (~3 s)
 
 
 # ---------------------------------------------------------------------------
@@ -77,21 +79,30 @@ def _push_frame(disp, use_hardware: bool, img: Image.Image):
 # ---------------------------------------------------------------------------
 class DisplayState:
     def __init__(self):
-        self._lock        = threading.Lock()
-        self.state        = "network"
-        self.connectivity = "disconnected"
-        self.provider     = "starting"
-        self.qr_data      = ""
-        self.ip           = ""
-        self.ssid         = ""
-        self.hostname     = ""
-        self._frame       = 0
+        self._lock          = threading.Lock()
+        self.state          = "network"
+        self.connectivity   = "disconnected"
+        self.provider       = "starting"
+        self.qr_data        = ""
+        self.ip             = ""
+        self.ssid           = ""
+        self.hostname       = ""
+        self._frame         = 0
+        self._last_activity = time.monotonic()
+        self._was_sleeping  = False   # tracks wakeup stretch transition
+        self._stretch_count = 0
 
     def update(self, **kwargs):
         with self._lock:
             if "state" in kwargs and kwargs["state"] != self.state:
-                self.state  = kwargs["state"]
+                incoming = kwargs["state"]
+                # Waking from sleep → play stretch first
+                if self.state == "sleeping" or self._was_sleeping:
+                    self._was_sleeping  = True
+                    self._stretch_count = 0
+                self.state  = incoming
                 self._frame = 0
+            self._last_activity = time.monotonic()
             if "connectivity" in kwargs:
                 self.connectivity = kwargs["connectivity"]
             if "provider"     in kwargs:
@@ -105,11 +116,30 @@ class DisplayState:
             if "hostname"     in kwargs:
                 self.hostname     = kwargs["hostname"]
 
+    def idle_seconds(self) -> float:
+        with self._lock:
+            return time.monotonic() - self._last_activity
+
     def tick_frame(self) -> tuple:
         with self._lock:
-            snap = (self.state, self._frame, self.connectivity,
+            state = self.state
+
+            # Auto-sleep when idle long enough
+            if state == "idle" and (time.monotonic() - self._last_activity) > IDLE_SLEEP_TIMEOUT:
+                state = "sleeping"
+
+            # Wakeup stretch — play for STRETCH_FRAMES then let real state show
+            if self._was_sleeping:
+                if self._stretch_count < STRETCH_FRAMES:
+                    state = "stretching"
+                    self._stretch_count += 1
+                else:
+                    self._was_sleeping  = False
+                    self._stretch_count = 0
+
+            snap = (state, self._frame, self.connectivity,
                     self.provider, self.qr_data, self.ip, self.ssid, self.hostname)
-            self._frame = (self._frame + 1) % 4
+            self._frame = (self._frame + 1) % 120   # 120-frame cycle = 20 s at 6 FPS
         return snap
 
 

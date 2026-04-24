@@ -27,6 +27,7 @@ YELLOW     = (255, 215,   0)
 PINK       = (255, 200, 200)
 GREEN      = ( 50, 200,  80)
 RED        = (220,  50,  50)
+LIGHT_BLUE = (140, 180, 255)
 BG         = (10,   10,  10)   # near-black background
 
 
@@ -80,6 +81,10 @@ class RaccoonRenderer:
 
         if state == "idle":
             self._draw_idle(draw, cx, cy, frame)
+        elif state == "sleeping":
+            self._draw_sleeping(draw, cx, cy, frame)
+        elif state == "stretching":
+            self._draw_stretching(draw, cx, cy, frame)
         elif state == "thinking":
             self._draw_thinking(draw, cx, cy, frame)
         elif state == "responding":
@@ -254,12 +259,63 @@ class RaccoonRenderer:
         self._draw_tail(draw, cx, cy, wag_offset=0, drooping=True)
         self._draw_raccoon_base(draw, cx + shake, cy + 6, x_eyes=True)
 
+    def _draw_sleeping(self, draw, cx, cy, frame):
+        # Gentle belly breathing — body shifts 2px on slow cycle
+        breathe = 1 if (frame % 24) < 12 else -1
+        self._draw_tail(draw, cx, cy, wag_offset=0)
+        self._draw_raccoon_base(draw, cx, cy + breathe, sleeping=True)
+        self._draw_zzz(draw, cx, cy, frame)
+
+    def _draw_stretching(self, draw, cx, cy, frame):
+        """Yawning raccoon — plays briefly on wakeup."""
+        self._draw_tail(draw, cx, cy, wag_offset=3)
+        self._draw_raccoon_base(draw, cx, cy, blink=(frame % 4 < 2))
+        # Both arms raised
+        draw.line([cx - 26, cy + 40, cx - 42, cy + 4], fill=DARK_GRAY, width=8)
+        self._draw_paw(draw, cx - 42, cy + 2, scale=0.9)
+        draw.line([cx + 26, cy + 40, cx + 42, cy + 4], fill=DARK_GRAY, width=8)
+        self._draw_paw(draw, cx + 42, cy + 2, scale=0.9)
+        # Wide yawn mouth
+        self._draw_speech_mouth(draw, cx, cy, open_amount=14)
+
+    # ------------------------------------------------------------------
+    # ZZZ helpers
+    # ------------------------------------------------------------------
+    def _draw_z(self, draw, x, y, size, color):
+        """Draw a single Z glyph with three lines."""
+        draw.line([x,        y,        x + size, y       ], fill=color, width=2)
+        draw.line([x + size, y,        x,        y + size], fill=color, width=2)
+        draw.line([x,        y + size, x + size, y + size], fill=color, width=2)
+
+    def _draw_zzz(self, draw, cx, cy, frame):
+        """Three Z letters rising in sequence to the upper-right."""
+        # Each Z rises over 18 frames then loops.  Phase drives which Zs are visible.
+        cycle = frame % 18
+        phase = frame % 54   # 3-step sequence of 18 frames each
+
+        # Base anchor to the right of the raccoon's head
+        bx, by = cx + 44, cy - 28
+
+        # Rise offset grows as cycle advances (0..17 → 0..17 px up)
+        rise = cycle
+
+        # Small Z — always visible
+        self._draw_z(draw, bx,     by - rise,      size=7,  color=LIGHT_BLUE)
+
+        # Medium Z — appears in 2nd and 3rd phases
+        if phase >= 18:
+            self._draw_z(draw, bx + 10, by - 18 - rise // 2, size=10, color=LIGHT_BLUE)
+
+        # Large Z — only in 3rd phase
+        if phase >= 36:
+            self._draw_z(draw, bx + 22, by - 36 - rise // 3, size=14, color=LIGHT_BLUE)
+
     # ------------------------------------------------------------------
     # Core raccoon drawing
     # ------------------------------------------------------------------
     def _draw_raccoon_base(self, draw, cx, cy, scale=1.0,
                            blink=False, ears_up=False, x_eyes=False,
-                           looking_down=False, hard_hat=False):
+                           looking_down=False, hard_hat=False, sleeping=False):
         """Draw body, head, ears, mask, muzzle, nose, eyes."""
         s = scale
 
@@ -332,44 +388,49 @@ class RaccoonRenderer:
         eye_y = mask_y + int(2 * s)
         ey_h  = int(10 * s) if not blink else int(4 * s)
         eye_w = int(14 * s)
+        lex   = cx - int(26 * s)
+        rex   = cx + int(26 * s)
 
-        # Left eye white
-        lex = cx - int(26 * s)
-        draw.ellipse([lex - eye_w // 2, eye_y,
-                      lex + eye_w // 2, eye_y + ey_h],
-                     fill=WHITE, outline=BLACK)
-        # Right eye white
-        rex = cx + int(26 * s)
-        draw.ellipse([rex - eye_w // 2, eye_y,
-                      rex + eye_w // 2, eye_y + ey_h],
-                     fill=WHITE, outline=BLACK)
-
-        if x_eyes:
-            # Draw X over each eye
+        if sleeping:
+            # Closed arcs — peaceful sleep lines
             for ex_c in [lex, rex]:
-                xr = int(6 * s)
-                draw.line([ex_c - xr, eye_y, ex_c + xr, eye_y + ey_h],
-                          fill=RED, width=2)
-                draw.line([ex_c + xr, eye_y, ex_c - xr, eye_y + ey_h],
-                          fill=RED, width=2)
+                draw.arc([ex_c - eye_w // 2, eye_y - int(2 * s),
+                          ex_c + eye_w // 2, eye_y + int(6 * s)],
+                         start=0, end=180, fill=BLACK, width=2)
         else:
-            # Pupils (shifted down if looking_down)
-            pu_dy = int(3 * s) if looking_down else int(2 * s)
-            pu_r  = int(4 * s)
-            if not blink:
-                draw.ellipse([lex - pu_r, eye_y + pu_dy,
-                              lex + pu_r, eye_y + pu_dy + pu_r * 2],
-                             fill=BLACK)
-                draw.ellipse([rex - pu_r, eye_y + pu_dy,
-                              rex + pu_r, eye_y + pu_dy + pu_r * 2],
-                             fill=BLACK)
-                # Catchlights
-                draw.ellipse([lex - pu_r + 2, eye_y + pu_dy + 1,
-                              lex - pu_r + 4, eye_y + pu_dy + 3],
-                             fill=WHITE)
-                draw.ellipse([rex - pu_r + 2, eye_y + pu_dy + 1,
-                              rex - pu_r + 4, eye_y + pu_dy + 3],
-                             fill=WHITE)
+            # Left eye white
+            draw.ellipse([lex - eye_w // 2, eye_y,
+                          lex + eye_w // 2, eye_y + ey_h],
+                         fill=WHITE, outline=BLACK)
+            # Right eye white
+            draw.ellipse([rex - eye_w // 2, eye_y,
+                          rex + eye_w // 2, eye_y + ey_h],
+                         fill=WHITE, outline=BLACK)
+
+            if x_eyes:
+                for ex_c in [lex, rex]:
+                    xr = int(6 * s)
+                    draw.line([ex_c - xr, eye_y, ex_c + xr, eye_y + ey_h],
+                              fill=RED, width=2)
+                    draw.line([ex_c + xr, eye_y, ex_c - xr, eye_y + ey_h],
+                              fill=RED, width=2)
+            else:
+                pu_dy = int(3 * s) if looking_down else int(2 * s)
+                pu_r  = int(4 * s)
+                if not blink:
+                    draw.ellipse([lex - pu_r, eye_y + pu_dy,
+                                  lex + pu_r, eye_y + pu_dy + pu_r * 2],
+                                 fill=BLACK)
+                    draw.ellipse([rex - pu_r, eye_y + pu_dy,
+                                  rex + pu_r, eye_y + pu_dy + pu_r * 2],
+                                 fill=BLACK)
+                    # Catchlights
+                    draw.ellipse([lex - pu_r + 2, eye_y + pu_dy + 1,
+                                  lex - pu_r + 4, eye_y + pu_dy + 3],
+                                 fill=WHITE)
+                    draw.ellipse([rex - pu_r + 2, eye_y + pu_dy + 1,
+                                  rex - pu_r + 4, eye_y + pu_dy + 3],
+                                 fill=WHITE)
 
         # ---- idle mouth (small smile) ----
         sm_y = my + int(12 * s)

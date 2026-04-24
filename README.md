@@ -22,6 +22,8 @@ The raccoon changes pose based on what the AI is doing:
 | State | What you see |
 |-------|-------------|
 | `idle` | Blinking, tail wagging |
+| `sleeping` | Eyes closed, ZZZ rising — auto after 5 min idle |
+| `stretching` | Arms up, yawning — plays automatically on wakeup |
 | `thinking` | Raised paw, thought bubble cycling |
 | `responding` | Mouth opens and closes |
 | `working` | Typing paws on a surface |
@@ -131,18 +133,16 @@ sudo python3 display/test_lcd.py       # colour screens + raccoon
 
 ---
 
-## Wiring up OpenClaw / Claude Code
+## Wiring up OpenClaw
 
-The display hooks config is at `display/hooks/openclaw.json`.
-Copy it to your Claude settings:
+Run the setup script as the user who runs OpenClaw (not root):
 
 ```bash
-# Fresh install (no existing settings)
-cp display/hooks/openclaw.json ~/.claude/settings.json
-
-# Existing settings — merge the "hooks" block manually
-cat display/hooks/openclaw.json
+bash ~/LCDlobster/display/hooks/setup-hooks.sh
 ```
+
+This copies `display/hooks/openclaw.json` to `~/.claude/settings.json`.
+If you already have settings there it will print the block to merge manually.
 
 Once the hooks are in place the raccoon reacts automatically:
 
