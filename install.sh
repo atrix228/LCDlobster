@@ -99,6 +99,14 @@ log "Python display packages installed."
 log "  Verify with: sudo python3 ${SCRIPT_DIR}/display/diagnose_lcd.py"
 
 # ---------------------------------------------------------------------------
+# 4b. Install lobster-status CLI
+# ---------------------------------------------------------------------------
+log "Installing lobster-status CLI..."
+cp "${SCRIPT_DIR}/display/lobster_status.py" /usr/local/bin/lobster-status
+chmod +x /usr/local/bin/lobster-status
+log "  lobster-status installed — test with: lobster-status idle"
+
+# ---------------------------------------------------------------------------
 # 5. Node.js dependencies & TypeScript build
 # ---------------------------------------------------------------------------
 log "Installing Node.js dependencies..."
@@ -171,14 +179,17 @@ echo -e "${G}║       LCDlobster install complete!       ║${NC}"
 echo -e "${G}╚══════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${Y}Next steps:${NC}"
-echo "  1. Edit config.toml — add your API keys"
-echo "  2. Test the screen first:"
+echo "  1. Start the display service:"
+echo "       sudo systemctl start raccoon-display"
+echo ""
+echo "  2. Wire up OpenClaw / Claude Code hooks:"
+echo "       cat ${SCRIPT_DIR}/display/hooks/openclaw.json"
+echo "       # Merge into ~/.claude/settings.json"
+echo ""
+echo "  3. For other AI tools, call lobster-status directly:"
+echo "       lobster-status thinking --provider \"Gemini 1.5\""
+echo "       lobster-status idle"
+echo ""
+echo "  4. Test the display:"
 echo "       sudo python3 ${SCRIPT_DIR}/display/test_lcd.py"
-echo "  3. If screen works, reboot (SPI config takes effect):"
-echo "       sudo reboot"
-echo "  4. After reboot, start services:"
-echo "       sudo systemctl start raccoon-display lcdlobster"
-echo "  5. Watch logs:"
-echo "       sudo journalctl -fu raccoon-display"
-echo "       sudo journalctl -fu lcdlobster"
 echo ""
