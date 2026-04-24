@@ -239,8 +239,18 @@ echo "$CMDLINE" > "$CMDLINE_FILE"
 # ---------------------------------------------------------------------------
 # 9. API key config file on boot partition (editable from any OS)
 # ---------------------------------------------------------------------------
-log "Creating lcdlobster.env on boot partition..."
-cat > "${ROOT_MNT}/boot/firmware/lcdlobster.env" << 'ENVFILE'
+log "Writing lcdlobster.env to boot partition..."
+# Use pre-filled lcdlobster.env from project root if it exists,
+# otherwise write a blank template the user fills in after flashing.
+if [[ -f "${SCRIPT_DIR}/lcdlobster.env" ]]; then
+    log "  Using existing lcdlobster.env (with pre-filled credentials)"
+    cp "${SCRIPT_DIR}/lcdlobster.env" "${ROOT_MNT}/boot/firmware/lcdlobster.env"
+else
+    log "  No lcdlobster.env found — writing blank template"
+fi
+
+# Write template only if no pre-filled file was copied
+[[ -f "${ROOT_MNT}/boot/firmware/lcdlobster.env" ]] || cat > "${ROOT_MNT}/boot/firmware/lcdlobster.env" << 'ENVFILE'
 # ==========================================================
 # LCDlobster configuration — edit before first boot
 # This file lives on the FAT32 boot partition (visible from
