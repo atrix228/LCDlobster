@@ -20,9 +20,9 @@ WORK_DIR="${BUILD_DIR}/work"
 ROOT_MNT="${WORK_DIR}/rootfs"
 BOOT_MNT="${WORK_DIR}/bootfs"
 
-IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_armhf_latest"
-XZ_CACHE="${BUILD_DIR}/raspios-lite-armhf-latest.img.xz"
-RAW_IMG="${BUILD_DIR}/raspios-lite-armhf.img"
+IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64_latest"
+XZ_CACHE="${BUILD_DIR}/raspios-lite-arm64-latest.img.xz"
+RAW_IMG="${BUILD_DIR}/raspios-lite-arm64.img"
 OUT_IMG="${BUILD_DIR}/lcdlobster-$(date +%Y%m%d).img"
 
 # Pi credentials baked into the image
@@ -48,7 +48,7 @@ die()  { echo -e "${R}[error]${NC} $*" >&2; exit 1; }
 # Prerequisite check
 # ---------------------------------------------------------------------------
 MISSING=()
-for cmd in losetup kpartx parted mkfs.ext4 qemu-arm-static curl xz; do
+for cmd in losetup kpartx parted mkfs.ext4 qemu-aarch64-static curl xz; do
     command -v "$cmd" &>/dev/null || MISSING+=("$cmd")
 done
 if [ ${#MISSING[@]} -gt 0 ]; then
@@ -162,14 +162,14 @@ mount -t proc  proc   "${ROOT_MNT}/proc"
 mount -t sysfs sysfs  "${ROOT_MNT}/sys"
 mount -t tmpfs tmpfs  "${ROOT_MNT}/run"
 
-# Install QEMU binary for ARM 32-bit emulation
-cp /usr/bin/qemu-arm-static "${ROOT_MNT}/usr/bin/"
+# Install QEMU binary for ARM 64-bit emulation
+cp /usr/bin/qemu-aarch64-static "${ROOT_MNT}/usr/bin/"
 
 # ---------------------------------------------------------------------------
 # 6. Chroot helper
 # ---------------------------------------------------------------------------
 RUN() {
-    chroot "$ROOT_MNT" /usr/bin/qemu-arm-static /bin/bash -c "$*"
+    chroot "$ROOT_MNT" /usr/bin/qemu-aarch64-static /bin/bash -c "$*"
 }
 
 # ---------------------------------------------------------------------------
@@ -307,7 +307,6 @@ RUN "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     python3-dev \
     python3-pil \
     python3-spidev \
-    python3-rpi.gpio \
     i2c-tools \
     python3-smbus \
     libopenjp2-7 \
@@ -320,20 +319,19 @@ RUN "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     git \
     curl \
     ca-certificates \
-    libssl-dev 2>/dev/null"
+    libssl-dev \
+    netcat-openbsd 2>/dev/null"
 
 # ---------------------------------------------------------------------------
-# 11. Install Node.js 20.x (direct from nodejs.org — NodeSource dropped armhf)
+# 11. Install Node.js 22.x (arm64 — Pi Zero 2 W is aarch64)
 # ---------------------------------------------------------------------------
-log "Installing Node.js 20.x for armv7l..."
-# Fetch the latest v20 LTS filename for armv7l
-NODE_TARBALL=$(curl -s https://nodejs.org/dist/latest-v20.x/ \
-    | grep -o 'node-v[0-9.]*-linux-armv7l\.tar\.xz' | head -1)
-[[ -z "$NODE_TARBALL" ]] && die "Could not determine Node.js armv7l tarball filename"
-NODE_URL="https://nodejs.org/dist/latest-v20.x/${NODE_TARBALL}"
+log "Installing Node.js 22.x for arm64..."
+NODE_TARBALL=$(curl -s https://nodejs.org/dist/latest-v22.x/ \
+    | grep -o 'node-v[0-9.]*-linux-arm64\.tar\.xz' | head -1)
+[[ -z "$NODE_TARBALL" ]] && die "Could not determine Node.js arm64 tarball filename"
+NODE_URL="https://nodejs.org/dist/latest-v22.x/${NODE_TARBALL}"
 log "  Downloading $NODE_TARBALL ..."
 curl -fsSL "$NODE_URL" -o "${WORK_DIR}/node.tar.xz"
-# Extract into the rootfs directly (strip top-level dir → goes into /usr/local)
 tar -xf "${WORK_DIR}/node.tar.xz" -C "${ROOT_MNT}/usr/local" --strip-components=1
 rm "${WORK_DIR}/node.tar.xz"
 RUN "node --version && npm --version"
@@ -343,9 +341,31 @@ RUN "node --version && npm --version"
 # ---------------------------------------------------------------------------
 log "Installing Python display packages..."
 PIP_OPTS="--break-system-packages --no-cache-dir -q"
-RUN "pip3 install $PIP_OPTS Pillow>=10.0.0"
+RUN "pip3 install $PIP_OPTS rpi-lgpio"      # Trixie/Bookworm replacement for RPi.GPIO
+RUN "pip3 install $PIP_OPTS spidev"
+RUN "pip3 install $PIP_OPTS Pillow"
 RUN "pip3 install $PIP_OPTS displayhatmini"
-RUN "pip3 install $PIP_OPTS 'qrcode[pil]>=7.4.2'"
+RUN "pip3 install $PIP_OPTS 'qrcode[pil]'"
+
+# ---------------------------------------------------------------------------
+# 12b. Install lobster-status CLI
+# ---------------------------------------------------------------------------
+log "Installing lobster-status CLI..."
+cp "${SCRIPT_DIR}/display/lobster_status.py" "${ROOT_MNT}/usr/local/bin/lobster-status"
+chmod +x "${ROOT_MNT}/usr/local/bin/lobster-status"
+
+# ---------------------------------------------------------------------------
+# 12c. Install OpenClaw (Claude Code)
+# ---------------------------------------------------------------------------
+log "Installing OpenClaw (Claude Code)..."
+RUN "npm install -g @anthropic-ai/claude-code"
+
+# Set up OpenClaw display hooks for the pi user
+log "Configuring OpenClaw display hooks..."
+mkdir -p "${ROOT_MNT}/home/${PI_USER}/.claude"
+cp "${SCRIPT_DIR}/display/hooks/openclaw.json" \
+   "${ROOT_MNT}/home/${PI_USER}/.claude/settings.json"
+chown -R 1000:1000 "${ROOT_MNT}/home/${PI_USER}/.claude"
 
 # ---------------------------------------------------------------------------
 # 13. Copy LCDlobster project
@@ -520,7 +540,8 @@ exec > >(tee -a "$LOG") 2>&1
 echo "[firstboot] Starting at $(date)"
 
 systemctl start raccoon-display 2>/dev/null || true
-sleep 2
+sleep 3
+lobster-status building --provider "first boot setup" 2>/dev/null || true
 
 if [[ -f "$ENV_FILE" ]]; then
     echo "[firstboot] Reading $ENV_FILE"
@@ -554,13 +575,16 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 echo "[firstboot] Running npm install..."
+lobster-status working --provider "npm install" 2>/dev/null || true
 cd "$PROJ"
 sudo -u pi npm install --prefer-offline 2>&1 | tail -5
 
 echo "[firstboot] Building TypeScript..."
+lobster-status building --provider "npm build" 2>/dev/null || true
 sudo -u pi npm run build 2>&1 | tail -5
 
 echo "[firstboot] Build complete."
+lobster-status idle 2>/dev/null || true
 chown -R pi:pi "$PROJ"
 
 systemctl enable lcdlobster
@@ -633,7 +657,7 @@ chmod 600 "${ROOT_MNT}/etc/NetworkManager/system-connections/bt-tether.nmconnect
 log "Cleaning apt cache to reduce image size..."
 RUN "apt-get clean"
 RUN "rm -rf /var/lib/apt/lists/*"
-rm -f "${ROOT_MNT}/usr/bin/qemu-arm-static"
+rm -f "${ROOT_MNT}/usr/bin/qemu-aarch64-static"
 
 # ---------------------------------------------------------------------------
 # 19. Unmount everything
