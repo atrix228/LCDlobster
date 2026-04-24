@@ -53,7 +53,7 @@ def _init_display():
 def _push_frame(disp, use_hardware: bool, img: Image.Image):
     """Send a rendered frame to the display (or save it for debugging)."""
     if use_hardware:
-        disp.display(img)
+        disp.st7789.display(img)
     else:
         img.save("/tmp/raccoon_frame.png")
 

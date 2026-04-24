@@ -88,7 +88,7 @@ def run_test():
         tw2 = bbox2[2] - bbox2[0]
         draw.text(((W - tw2) // 2, 130), subtitle, fill=text_col, font=font_sm)
 
-        display.display(img)
+        display.st7789.display(img)
         print(f"   {label}", flush=True)
         time.sleep(1.5)
 
@@ -100,7 +100,7 @@ def run_test():
         from raccoon import RaccoonRenderer
         r   = RaccoonRenderer()
         img = r.draw_frame("idle", 0, "disconnected", "test")
-        display.display(img)
+        display.st7789.display(img)
         step("   OK — raccoon is on screen")
         time.sleep(3)
     except Exception as e:

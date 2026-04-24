@@ -150,14 +150,14 @@ else:
         img  = Image.new("RGB", (W, H), (0, 80, 160))
         draw = ImageDraw.Draw(img)
         draw.text((10, 10), "LCD OK", fill=(255, 255, 255))
-        disp.display(img)
+        disp.st7789.display(img)
         check("Frame pushed to display", True,
               "A blue screen with 'LCD OK' should be visible now.")
 
         import time; time.sleep(2)
 
         # Black out
-        disp.display(Image.new("RGB", (W, H), (0, 0, 0)))
+        disp.st7789.display(Image.new("RGB", (W, H), (0, 0, 0)))
         disp.set_backlight(0)
 
     except Exception as exc:
