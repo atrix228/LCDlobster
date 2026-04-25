@@ -4,19 +4,21 @@
 
 Same hardware, full-colour LCD, animated raccoon — and a real AI you can chat with from anywhere over Telegram.
 
-```
-┌─────────────────────────────────┐
-│ THINKING              ● online  │
-│                                 │
-│         /\   /\                 │
-│        (  ◕ ◕  )                │
-│         \  ▼  /   💭 ...        │
-│          -----                  │
-│         /|   |\                 │
-│                                 │
-│       ZeroClaw / Qwen3          │
-└─────────────────────────────────┘
-```
+<p align="center">
+  <img src="assets/thinking.gif" width="213" alt="thinking"/>
+  <img src="assets/celebrating.gif" width="213" alt="celebrating"/>
+  <img src="assets/sleeping.gif" width="213" alt="sleeping"/>
+</p>
+
+<p align="center">
+  <img src="assets/working.gif" width="213" alt="working"/>
+  <img src="assets/excited.gif" width="213" alt="excited"/>
+  <img src="assets/idle.gif" width="213" alt="idle"/>
+</p>
+
+### It's alive on your desk
+
+There's something unexpectedly satisfying about glancing over at a tiny screen and watching your raccoon pace back and forth while it thinks, eyes narrowing into sunglasses when it goes sneaky, or doing a full arm-raise yawn when it wakes up from a long idle. Every state has its own personality — the X-eye shake of `error`, the magnifying glass sweep of `searching`, the party-hat bounce of `celebrating`. It runs at 6 FPS on a $15 Pi Zero 2W and never stops moving. Once you've had it on your desk for a day, a static terminal window feels boring.
 
 ---
 
@@ -166,24 +168,24 @@ This installs Claude Code hooks so the raccoon shows:
 
 ## Raccoon states
 
-| State | Animation | Trigger |
-|---|---|---|
-| `idle` | Blinking, tail wagging | Default |
-| `sleeping` | Eyes closed, ZZZ rising | Auto after 5 min idle |
-| `stretching` | Arms up, yawning | Automatic on wakeup |
-| `thinking` | Raised paw, thought bubble | LLM processing |
-| `responding` | Mouth opens/closes | Reply composing |
-| `working` | Typing paws | Tool / command executing |
-| `building` | Hard hat + wrench | File edit / write |
-| `listening` | Ears up, head tilt | Message received |
-| `error` | X eyes, drooping tail | Error detected |
-| `network` | IP + WiFi SSID | Startup / network check |
-| `celebrating` | Arms up, star burst | Task completed |
-| `confused` | Head scratch, `?` bubble | Unexpected input |
-| `searching` | Magnifying glass sweep | Web / file search |
-| `reading` | Open book, scanning eyes | Reading long content |
-| `excited` | Bouncing, sparkles | Positive result |
-| `sneaky` | Low crouch, side-eye | Background task |
+| Preview | State | Animation | Trigger |
+|---|---|---|---|
+| <img src="assets/idle.gif" width="120"/> | `idle` | Blinking, tail wagging | Default |
+| <img src="assets/sleeping.gif" width="120"/> | `sleeping` | Eyes closed, ZZZ rising | Auto after 5 min idle |
+| <img src="assets/stretching.png" width="120"/> | `stretching` | Arms up, yawning | Automatic on wakeup |
+| <img src="assets/thinking.gif" width="120"/> | `thinking` | Raised paw, thought bubble | LLM processing |
+| <img src="assets/responding.png" width="120"/> | `responding` | Mouth opens/closes | Reply composing |
+| <img src="assets/listening.png" width="120"/> | `listening` | Ears up, head tilt | Message received |
+| <img src="assets/working.gif" width="120"/> | `working` | Typing paws | Tool / command executing |
+| <img src="assets/building.png" width="120"/> | `building` | Hard hat + wrench | File edit / write |
+| <img src="assets/error.gif" width="120"/> | `error` | X eyes, shaking, drooping tail | Error detected |
+| <img src="assets/celebrating.gif" width="120"/> | `celebrating` | Bounce, party hat, sparkles | Task completed |
+| <img src="assets/confused.png" width="120"/> | `confused` | Head tilt, `???` bubble | Unexpected input |
+| <img src="assets/searching.png" width="120"/> | `searching` | Magnifying glass sweep | Web / file search |
+| <img src="assets/reading.png" width="120"/> | `reading` | Glasses, laptop glow | Reading long content |
+| <img src="assets/excited.gif" width="120"/> | `excited` | Spinning star burst, bouncing | Positive result |
+| <img src="assets/sneaky.gif" width="120"/> | `sneaky` | Sunglasses, crouched, fast-typing | Background task |
+| <img src="assets/network.png" width="120"/> | `network` | IP + WiFi SSID display | Startup / network check |
 
 ---
 
@@ -191,17 +193,11 @@ This installs Claude Code hooks so the raccoon shows:
 
 Press **Button A** (GPIO 5) on the Display HAT Mini to toggle a system stats page:
 
-```
-┌─────────────────────────────────┐
-│  CPU  [████████░░░░░░░░] 47%    │
-│  MEM  [████████████░░░░] 71%    │
-│  TEMP  52°C   UP  2h 14m        │
-│  IP   192.168.1.42              │
-│  WiFi MyNetwork          ● ok   │
-└─────────────────────────────────┘
-```
+<p align="center">
+  <img src="assets/sysinfo.png" width="320" alt="sysinfo screen"/>
+</p>
 
-Press again to return to the raccoon.
+CPU and memory bars turn yellow above 60% and red above 85%. Press again to return to the raccoon.
 
 ---
 
