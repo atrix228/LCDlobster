@@ -167,6 +167,25 @@ class SysInfoCollector:
         except Exception:
             s['ssid'] = ''
 
+        # Tailscale IP
+        try:
+            r = subprocess.run(['tailscale', 'ip', '-4'],
+                               capture_output=True, text=True, timeout=3)
+            s['tailscale_ip'] = r.stdout.strip()
+        except Exception:
+            try:
+                r = subprocess.run(['ip', 'addr', 'show', 'tailscale0'],
+                                   capture_output=True, text=True, timeout=2)
+                for line in r.stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith('inet '):
+                        s['tailscale_ip'] = line.split()[1].split('/')[0]
+                        break
+                else:
+                    s['tailscale_ip'] = ''
+            except Exception:
+                s['tailscale_ip'] = ''
+
         with self._lock:
             self._stats = s
 
@@ -196,7 +215,8 @@ class DisplayState:
         self._last_activity = time.monotonic()
         self._was_sleeping  = False
         self._stretch_count = 0
-        self._sysinfo_mode  = False
+        # 0 = raccoon  1 = network info  2 = sysinfo
+        self._button_mode   = 0
 
     def update(self, **kwargs):
         with self._lock:
@@ -208,6 +228,10 @@ class DisplayState:
                     self._stretch_count = 0
                 self.state  = incoming
                 self._frame = 0
+                # Any bot activity snaps back to raccoon view
+                if self._button_mode != 0:
+                    self._button_mode = 0
+                    print("[display] Button mode: raccoon (auto-reset)", flush=True)
             self._last_activity = time.monotonic()
             if "connectivity" in kwargs:
                 self.connectivity = kwargs["connectivity"]
@@ -222,10 +246,12 @@ class DisplayState:
             if "hostname"     in kwargs:
                 self.hostname     = kwargs["hostname"]
 
-    def toggle_sysinfo(self):
+    def cycle_display(self):
+        """Button A: cycle raccoon → network → sysinfo → raccoon."""
         with self._lock:
-            self._sysinfo_mode = not self._sysinfo_mode
-            print(f"[display] Sysinfo mode: {self._sysinfo_mode}", flush=True)
+            self._button_mode = (self._button_mode + 1) % 3
+            labels = ["raccoon", "network", "sysinfo"]
+            print(f"[display] Button mode: {labels[self._button_mode]}", flush=True)
 
     def idle_seconds(self) -> float:
         with self._lock:
@@ -233,14 +259,23 @@ class DisplayState:
 
     def tick_frame(self) -> tuple:
         with self._lock:
-            # Button-toggled sysinfo page overrides everything
-            if self._sysinfo_mode:
+            # Button cycle overrides everything
+            if self._button_mode == 2:
                 snap = ("sysinfo", self._frame, self.connectivity,
+                        self.provider, self.qr_data, self.ip, self.ssid, self.hostname)
+                self._frame = (self._frame + 1) % 120
+                return snap
+            if self._button_mode == 1:
+                snap = ("network", self._frame, self.connectivity,
                         self.provider, self.qr_data, self.ip, self.ssid, self.hostname)
                 self._frame = (self._frame + 1) % 120
                 return snap
 
             state = self.state
+
+            # In raccoon mode, never show the startup network screen
+            if state == "network":
+                state = "idle"
 
             # Auto-sleep when idle long enough
             if state == "idle" and (time.monotonic() - self._last_activity) > IDLE_SLEEP_TIMEOUT:
@@ -274,9 +309,11 @@ def display_loop(shared: DisplayState, disp, use_hardware: bool,
         state, frame, connectivity, provider, qr_data, ip, ssid, hostname = shared.tick_frame()
 
         try:
-            stats = sysinfo.get() if state == "sysinfo" else None
+            stats = sysinfo.get() if state in ("sysinfo", "network") else None
+            tailscale_ip = (stats or {}).get('tailscale_ip', '')
             img = renderer.draw_frame(state, frame, connectivity, provider,
-                                      qr_data, ip, ssid, hostname, stats)
+                                      qr_data, ip, ssid, hostname, stats,
+                                      tailscale_ip=tailscale_ip)
             _push_frame(disp, use_hardware, img)
         except Exception as exc:
             print(f"[display] Render error: {exc}", flush=True)
@@ -395,7 +432,7 @@ def button_thread(shared: DisplayState, stop_event: threading.Event):
                 cur = GPIO.input(pin)
                 if prev[pin] and not cur:      # falling edge = press
                     if pin == BUTTON_A:
-                        shared.toggle_sysinfo()
+                        shared.cycle_display()
                     # B / X / Y reserved for future use
                 prev[pin] = cur
             time.sleep(0.05)
