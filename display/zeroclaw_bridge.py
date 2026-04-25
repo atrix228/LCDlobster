@@ -37,6 +37,7 @@ PROVIDER_LABEL  = os.environ.get("ZEROCLAW_PROVIDER_LABEL", "ZeroClaw")
 #   orchestrator: ⏱ Starting LLM call
 #   orchestrator: ⏱ LLM call completed
 #   🤖 Reply (7125ms): <text>
+#   🤖 No reply (500ms): ...
 #   orchestrator: ⏱ Tool call: <tool_name>
 #
 # Each entry: (compiled_regex, state_name, revert_after_secs or None)
@@ -45,29 +46,48 @@ PROVIDER_LABEL  = os.environ.get("ZEROCLAW_PROVIDER_LABEL", "ZeroClaw")
 _P = re.compile
 PATTERNS = [
     # ------ panic / crash ------
-    (_P(r"panicked|panic!|FATAL"),                 "error",      None),
+    (_P(r"panicked|panic!|FATAL"),                          "error",       None),
+
+    # ------ errors ------
+    (_P(r"\bERROR\b|non_retryable|All providers.*failed"),  "error",       8),
 
     # ------ incoming Telegram message ------
-    (_P(r"💬"),                                     "listening",  None),
+    (_P(r"💬"),                                              "listening",   None),
 
     # ------ processing / memory load ------
-    (_P(r"⏳ Processing|Memory recall"),            "thinking",   None),
+    (_P(r"⏳ Processing|Memory recall"),                     "thinking",    None),
+
+    # ------ web / internet search tool ------
+    (_P(r"Tool call:.*web_search|Tool call:.*search|Tool call:.*browse",
+        re.I),                                               "searching",   None),
+
+    # ------ file / URL reading tool ------
+    (_P(r"Tool call:.*file_read|Tool call:.*read_file|Tool call:.*http_fetch"
+        r"|Tool call:.*fetch|Tool call:.*scrape",
+        re.I),                                               "reading",     None),
+
+    # ------ shell / code execution ------
+    (_P(r"Tool call:.*shell|Tool call:.*exec|Tool call:.*run|Tool call:.*bash",
+        re.I),                                               "working",     None),
+
+    # ------ any other tool call ------
+    (_P(r"Tool call:|tool_call|⚙|executing.*tool",
+        re.I),                                               "working",     None),
 
     # ------ LLM call in progress ------
-    (_P(r"Starting LLM call"),                      "thinking",   None),
-
-    # ------ tool execution ------
-    (_P(r"Tool call:|tool_call|⚙|executing.*tool", re.I),
-                                                    "working",    None),
+    (_P(r"Starting LLM call"),                               "thinking",    None),
 
     # ------ LLM finished, about to send reply ------
-    (_P(r"LLM call completed"),                     "responding", None),
+    (_P(r"LLM call completed"),                              "responding",  None),
 
-    # ------ reply sent ------
-    (_P(r"🤖 Reply"),                               "idle",       None),
+    # ------ no reply / confused ------
+    (_P(r"🤖 No reply"),                                     "confused",    5),
 
-    # ------ errors shown in reply or log ------
-    (_P(r"\bERROR\b"),                              "error",      8),
+    # ------ excited: fast reply under 3 s (check before celebrating) ------
+    (_P(r"🤖 Reply \([0-2]\d{3}ms\)"),                       "excited",     4),
+
+    # ------ celebrating: any successful reply ------
+    (_P(r"🤖 Reply"),                                        "celebrating", 4),
 ]
 
 

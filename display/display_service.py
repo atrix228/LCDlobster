@@ -29,7 +29,7 @@ from raccoon import RaccoonRenderer
 SOCKET_PATH        = "/tmp/raccoon.sock"
 FPS                = 6
 FRAME_SLEEP        = 1.0 / FPS
-IDLE_SLEEP_TIMEOUT = 300   # seconds of idle before raccoon falls asleep
+IDLE_SLEEP_TIMEOUT = 120   # seconds of idle before raccoon falls asleep (2 min)
 STRETCH_FRAMES     = 18    # frames to show "stretching" on wakeup (~3 s)
 
 # Display HAT Mini button GPIO pins (BCM numbering, active-low)
