@@ -26,7 +26,7 @@ RACCOON_SOCK   = "/tmp/raccoon.sock"
 GATEWAY_HEALTH = "http://127.0.0.1:42617/health"
 HEALTH_INTERVAL = 5      # seconds between health polls
 IDLE_TIMEOUT    = 20     # seconds of log silence before going idle
-PROVIDER_LABEL  = "ZeroClaw / DeepSeek"
+PROVIDER_LABEL  = os.environ.get("ZEROCLAW_PROVIDER_LABEL", "ZeroClaw")
 
 # ---------------------------------------------------------------------------
 # Log pattern → raccoon state

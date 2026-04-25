@@ -27,10 +27,10 @@ if ! grep -q "^dtparam=spi=on" /boot/firmware/config.txt 2>/dev/null && \
     cat >> "$BOOT_CFG" << 'CFG'
 
 # LCDlobster — Display HAT Mini
-dtparam=spi=on
-dtoverlay=spi1-3cs
+# dtoverlay=spi0-2cs creates /dev/spidev0.0 and /dev/spidev0.1 reliably
+# on Pi OS Bookworm / kernel 6.6+ (dtparam=spi=on alone no longer works)
+dtoverlay=spi0-2cs
 dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
-dtoverlay=vc4-fkms-v3d
 CFG
     log "  SPI enabled in $BOOT_CFG (reboot required after install)"
 else
